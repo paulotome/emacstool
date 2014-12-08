@@ -56,4 +56,3 @@ if [ ! $(egrep -c '^(<<<<<<<|=======|>>>>>>>|####### Ancestor)' ${_MERGED}) = 0 
 fi
 
 exit 0
-
