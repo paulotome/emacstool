@@ -8,25 +8,24 @@ if [ ! ${#} -ge 2 ]; then
 fi
 
 # tools
-_EMACSCLIENT=/usr/bin/emacsclient.emacs24
+_EMACSCLIENT=/usr/bin/emacsclient
 _BASENAME=/usr/bin/basename
 _CP=/bin/cp
-_EGREP=/bin/egrep
 _MKTEMP=/bin/mktemp
 
 # args
 _LOCAL=${1}
 _REMOTE=${2}
-if [ ${3} ] ; then
+if [ "${3}" ] ; then
     _MERGED=${3}
 else
     _MERGED=${_REMOTE}
 fi
-if [ ${4} -a -r ${4} ] ; then
+if [ "${4}" ] && [ -r "${4}" ] ; then
     _BASE=${4}
     _EDIFF=ediff-merge-files-with-ancestor
     _EVAL="${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\" \"${_BASE}\" nil \"${_MERGED}\""
-elif [ ${_REMOTE} = ${_MERGED} ] ; then
+elif [ "${_REMOTE}" = "${_MERGED}" ] ; then
     _EDIFF=ediff
     _EVAL="${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\""
 else
@@ -46,9 +45,9 @@ fi
 ${_EMACSCLIENT} ${_EMACSCLIENTOPTS} -a "" -e "(${_EVAL})" 2>&1
 
 # check modified file
-if [ ! $(egrep -c '^(<<<<<<<|=======|>>>>>>>|####### Ancestor)' ${_MERGED}) = 0 ]; then
-    _MERGEDSAVE=$(${_MKTEMP} --tmpdir `${_BASENAME} ${_MERGED}`.XXXXXXXXXX)
-    ${_CP} ${_MERGED} ${_MERGEDSAVE}
+if [ ! "$(grep -Ec '^(<<<<<<<|=======|>>>>>>>|####### Ancestor)' "${_MERGED}")" = 0 ]; then
+    _MERGEDSAVE=$(${_MKTEMP} --tmpdir "$(${_BASENAME} "${_MERGED}")".XXXXXXXXXX)
+    ${_CP} "${_MERGED}" "${_MERGEDSAVE}"
     echo 1>&2 "Oops! Conflict markers detected in $_MERGED."
     echo 1>&2 "Saved your changes to ${_MERGEDSAVE}"
     echo 1>&2 "Exiting with code 1."
