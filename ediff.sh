@@ -12,6 +12,7 @@ _EMACSCLIENT=/usr/bin/emacsclient
 _BASENAME=/usr/bin/basename
 _CP=/bin/cp
 _MKTEMP=/bin/mktemp
+_GREP=/bin/grep
 
 # args
 _LOCAL=${1}
@@ -45,13 +46,19 @@ fi
 ${_EMACSCLIENT} ${_EMACSCLIENTOPTS} -a "" -e "(${_EVAL})" 2>&1
 
 # check modified file
-if [ ! "$(grep -Ec '^(<<<<<<<|=======|>>>>>>>|####### Ancestor)' "${_MERGED}")" = 0 ]; then
+if ${_GREP} -Eq '^(<<<<<<<|=======|>>>>>>>|####### Ancestor)' "${_MERGED}"; then
     _MERGEDSAVE=$(${_MKTEMP} --tmpdir "$(${_BASENAME} "${_MERGED}")".XXXXXXXXXX)
     ${_CP} "${_MERGED}" "${_MERGEDSAVE}"
-    echo 1>&2 "Oops! Conflict markers detected in $_MERGED."
+    echo 1>&2 "Oops! Conflict markers detected in ${_MERGED}."
     echo 1>&2 "Saved your changes to ${_MERGEDSAVE}"
     echo 1>&2 "Exiting with code 1."
     exit 1
+else
+    _GREP_STATUS=$?
+    if [ "${_GREP_STATUS}" -gt 1 ]; then
+        echo 1>&2 "Error checking conflict markers in ${_MERGED}."
+        exit "${_GREP_STATUS}"
+    fi
 fi
 
 exit 0

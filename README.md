@@ -1,160 +1,202 @@
 # Using Emacs Ediff as Git Merge/Difftool
 
 ## Table of contents
+
 1. [Overview](#overview)
 2. [Objective](#objective)
-3. [Implementation](#Implementation)
+3. [Implementation](#implementation)
    1. [Ediff Functions and Arguments](#ediff-functions-and-arguments)
    2. [Ediff Script](#ediff-script)
       1. [Script Modifications](#script-modifications)
-   3. [Git Configurations](#git-confifurations)
+   3. [Git Configuration](#git-configuration)
    4. [Caveats](#caveats)
-[](#)
+4. [Footnotes](#footnotes)
 
 ## Overview
 
-*Ediff* is «a comprehensive visual interface to Unix diff and patch utilities»<sup>[1](#myfootnote1)</sup> that comes with your [Emacs](https://www.gnu.org/software/emacs/emacs.html). This document shows how to use Ediff with [Git](https://git-scm.com/) for resolving merge conflicts and inspecting differences between file versions.
+*Ediff* is «a comprehensive visual interface to Unix diff and patch utilities»<sup>[1](#myfootnote1)</sup> that comes with [Emacs](https://www.gnu.org/software/emacs/emacs.html). This document describes how to use Ediff with [Git](https://git-scm.com/) to resolve merge conflicts and inspect differences between file versions.
 
-The solution described here uses a wrapper-shell-script that is called by *git mergetool* and *git difftool*. Arguments for the script are provided by Git via the appropriate Git configuration.
+The solution uses a wrapper shell script called by `git mergetool` and `git difftool`. Git passes the appropriate arguments to the script through the relevant Git configuration.
 
-The impatient may just download the [wrapper-script](https://github.com/paulotome/emacstool/raw/master/ediff.sh) for Ediff, possibly **[adapt](#script-modifications)** it (see also: Ediff Script) and add the appropriate **[Git configuration values](#git-configuration)**.
-
+The impatient may download the [Ediff wrapper script](https://github.com/paulotome/emacstool/raw/master/ediff.sh), adapt it as described in [Script Modifications](#script-modifications), and add the appropriate [Git configuration values](#git-configuration).
 
 ## Objective
 
-The objective is to integrate Ediff smoothly into the Git workflow. The following should be achieved:
+The objective is to integrate Ediff smoothly into the Git workflow. The following requirements should be met:
 
-1. Launch Ediff whenever git mergetool is invoked.
-2. Launch Ediff whenever git difftool is invoked.
-3. Prefer *emacsclient* over *emacs*.
-4. Create a new Emacs frame when on X.
-5. When merging, include ancestor (BASE) if available.
-6. When merging, check resulting merged file for conflict markers.
-7. When merging, use exit code to decide if merge was successful.
-
+1. Launch Ediff whenever `git mergetool` is invoked.
+2. Launch Ediff whenever `git difftool` is invoked.
+3. Prefer `emacsclient` over `emacs`.
+4. Create a new Emacs frame when running under X.
+5. When merging, include the ancestor (`BASE`) if available.
+6. When merging, check the resulting file for conflict markers.
+7. Return a non-zero exit status if conflict markers remain or the conflict-marker check fails.
 
 ## Implementation
 
-As the [Git mergetool](https://git-scm.com/docs/git-mergetool) and *difftool* help describes, it is possible to define custom merge and diff tool commands. Although it would be feasible to define an *emacsclient* command directly in the Git configuration, I prefer to use a **[shell script](#ediff-script)**. This makes it easier to decide which Ediff function to execute and which exit code to return. The script is called with the appropriate arguments from *git mergetool* or *git difftool* as defined in the **[Git configuration](#git-configuration)**.
+As described in the [Git mergetool](https://git-scm.com/docs/git-mergetool) and [Git difftool](https://git-scm.com/docs/git-difftool) documentation, it is possible to define custom commands for merge and diff tools.
 
+Although it would be feasible to define an `emacsclient` command directly in the Git configuration, I prefer to use a [shell script](#ediff-script). This makes it easier to select the appropriate Ediff function, pass the required arguments, check the merged file for conflict markers, and return an appropriate exit status.
+
+The script is called with the arguments supplied by `git mergetool` or `git difftool`, as defined in the [Git configuration](#git-configuration).
 
 ### Ediff Functions and Arguments
 
-There are basically three different cases that the script must handle by executing a specific Ediff function with the proper arguments:
+There are three main cases that the script must handle, each requiring a specific Ediff function and its corresponding arguments.
 
-1. **Git diff**<br>A simple diff, triggered by *git difftool* should execute `ediff` with the diff pre- and post-image as arguments.
+1. **Git diff**
 
-2. **Git merge without ancestor**<br>A merge without ancestors occurs for instance if you merge two branches and those two branches have created the same path/file independently, i.e. without a common base version. In this case `ediff-merge-files` should be executed with three arguments: the version of the file in the current branch, the version of the file in the branch to be merged from and the target file to write the merged version to.
+   A simple diff, triggered by `git difftool`, executes `ediff` with the pre-image and post-image files as arguments. This opens an Ediff session for comparing the two files.
 
-3. **Git merge with ancestor**<br>Often the conflicting versions of a file have a common earlier version, their *ancestor* or *base*. When an ancestor is available `ediff-merge-files-with-ancestor` should be executed with four arguments: the version of the file in the current branch, the version of the file in the branch to be merged from, the target file to write the merged version to and the base version of the file.
+2. **Git merge without ancestor**
+
+   A merge without an ancestor can occur, for example, when two branches create the same path or file independently, without a common base version.
+
+   In this case, `ediff-merge-files` is called with four arguments: the local file, the remote file, `nil` for the optional startup hooks, and the name of the file to associate with the merge buffer.
+
+3. **Git merge with ancestor**
+
+   Often, the conflicting versions of a file share an earlier version, known as the *ancestor* or *base*. When an ancestor is available, `ediff-merge-files-with-ancestor` is called with five arguments: the local file, the remote file, the ancestor file, `nil` for the optional startup hooks, and the name of the file to associate with the merge buffer.
+
+   The final argument is the `MERGE-BUFFER-FILE` argument in the Ediff function interface. It identifies the file associated with the merge buffer; it should not be described simply as a guarantee that the merged result will be written to that file.
+
+For the exact function signatures and argument descriptions, see the [Ediff manual](https://www.gnu.org/software/emacs/manual/html_node/ediff/Major-Entry-Points.html).
 
 ### Ediff Script
 
+The following is the [Ediff wrapper script](https://github.com/paulotome/emacstool/blob/master/ediff.sh). The script should be executable. The [Git configuration](#git-configuration) below assumes that it is named `ediff.sh`.
 
-Following below is the [wrapper-script](https://github.com/paulotome/emacstool/blob/master/ediff.sh) for Ediff which should be
-executable. The <a href="#sec-3-3">Git configuration</a> below assumes that the script is named
-<code>ediff.sh</code>.
+```bash
+#!/bin/bash
 
+# test args
+if [ "$#" -lt 2 ]; then
+    echo 1>&2 "Usage: ${0} LOCAL REMOTE [MERGED BASE]"
+    echo 1>&2 "       (LOCAL, REMOTE, MERGED, BASE can be provided by \`git mergetool'.)"
+    exit 1
+fi
 
-<div class="org-src-container">
+# tools
+_EMACSCLIENT=/usr/bin/emacsclient
+_BASENAME=/usr/bin/basename
+_CP=/bin/cp
+_MKTEMP=/bin/mktemp
+_GREP=/bin/grep
 
-<pre class="src src-shell-script"><span class="linenr"> 1: </span><span style="color: #8b0000;">#</span><span style="color: #8b0000;">!/bin/</span><span style="color: #ee0000;">bash</span>
-<span class="linenr"> 2: </span>
-<span class="linenr"> 3: </span><span style="color: #8b0000;"># </span><span style="color: #8b0000;">test args</span>
-<span class="linenr"> 4: </span><span style="color: #ee0000;">if</span> [ ! ${<span style="color: #a0522d;">#</span>} -ge 3 ]; <span style="color: #ee0000;">then</span>
-<span class="linenr"> 5: </span>    <span style="color: #483d8b;">echo</span> 1&gt;&amp;2 <span style="color: #8b2252;">"Usage: ${0} LOCAL REMOTE MERGED BASE"</span>
-<span class="linenr"> 6: </span>    <span style="color: #483d8b;">echo</span> 1&gt;&amp;2 <span style="color: #8b2252;">"       (LOCAL, REMOTE, MERGED, BASE can be provided by \`git mergetool'.)"</span>
-<span class="linenr"> 7: </span>    <span style="color: #ee0000;">exit</span> 1
-<span class="linenr"> 8: </span><span style="color: #ee0000;">fi</span>
-<span class="linenr"> 9: </span>
-<span class="linenr">10: </span><span style="color: #8b0000;"># </span><span style="color: #8b0000;">tools</span>
-<span class="linenr">11: </span><span style="color: #a0522d;">_EMACSCLIENT</span>=/usr/bin/emacsclient
-<span class="linenr">12: </span><span style="color: #a0522d;">_BASENAME</span>=/bin/basename
-<span class="linenr">13: </span><span style="color: #a0522d;">_CP</span>=/bin/cp
-<span class="linenr">14: </span><span style="color: #a0522d;">_EGREP</span>=/bin/egrep
-<span class="linenr">15: </span><span style="color: #a0522d;">_MKTEMP</span>=/bin/mktemp
-<span class="linenr">16: </span>
-<span class="linenr">17: </span><span style="color: #8b0000;"># </span><span style="color: #8b0000;">args</span>
-<span class="linenr">18: </span><span style="color: #a0522d;">_LOCAL</span>=${<span style="color: #a0522d;">1</span>}
-<span class="linenr">19: </span><span style="color: #a0522d;">_REMOTE</span>=${<span style="color: #a0522d;">2</span>}
-<span class="linenr">20: </span><span style="color: #a0522d;">_MERGED</span>=${<span style="color: #a0522d;">3</span>}
-<span class="linenr">21: </span><span style="color: #ee0000;">if</span> [ ${<span style="color: #a0522d;">4</span>} -a -r ${<span style="color: #a0522d;">4</span>} ] ; <span style="color: #ee0000;">then</span>
-<span class="linenr">22: </span>    <span style="color: #a0522d;">_BASE</span>=${<span style="color: #a0522d;">4</span>}
-<span class="linenr">23: </span>    <span style="color: #a0522d;">_EDIFF</span>=ediff-merge-files-with-ancestor
-<span class="linenr">24: </span>    <span style="color: #a0522d;">_EVAL</span>=<span style="color: #8b2252;">"${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\" \"${_BASE}\" nil \"${_MERGED}\""</span>
-<span class="linenr">25: </span><span style="color: #ee0000;">elif</span> [ ${<span style="color: #a0522d;">_REMOTE</span>} = ${<span style="color: #a0522d;">_MERGED</span>} ] ; <span style="color: #ee0000;">then</span>
-<span class="linenr">26: </span>    <span style="color: #a0522d;">_EDIFF</span>=ediff
-<span class="linenr">27: </span>    <span style="color: #a0522d;">_EVAL</span>=<span style="color: #8b2252;">"${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\""</span>
-<span class="linenr">28: </span><span style="color: #ee0000;">else</span>
-<span class="linenr">29: </span>    <span style="color: #a0522d;">_EDIFF</span>=ediff-merge-files
-<span class="linenr">30: </span>    <span style="color: #a0522d;">_EVAL</span>=<span style="color: #8b2252;">"${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\" nil \"${_MERGED}\""</span>
-<span class="linenr">31: </span><span style="color: #ee0000;">fi</span>
-<span class="linenr">32: </span>
-<span class="linenr">33: </span><span style="color: #8b0000;"># </span><span style="color: #8b0000;">console vs. X</span>
-<span class="linenr">34: </span><span style="color: #ee0000;">if</span> [ <span style="color: #8b2252;">"${TERM}"</span> = <span style="color: #8b2252;">"linux"</span> ]; <span style="color: #ee0000;">then</span>
-<span class="linenr">35: </span>    <span style="color: #483d8b;">unset</span> DISPLAY
-<span class="linenr">36: </span>    <span style="color: #a0522d;">_EMACSCLIENTOPTS</span>=<span style="color: #8b2252;">"-t"</span>
-<span class="linenr">37: </span><span style="color: #ee0000;">else</span>
-<span class="linenr">38: </span>    <span style="color: #a0522d;">_EMACSCLIENTOPTS</span>=<span style="color: #8b2252;">"-c"</span>
-<span class="linenr">39: </span><span style="color: #ee0000;">fi</span>
-<span class="linenr">40: </span>
-<span class="linenr">41: </span><span style="color: #8b0000;"># </span><span style="color: #8b0000;">run emacsclient</span>
-<span class="linenr">42: </span>${<span style="color: #a0522d;">_EMACSCLIENT</span>} ${<span style="color: #a0522d;">_EMACSCLIENTOPTS</span>} -a <span style="color: #8b2252;">""</span> -e <span style="color: #8b2252;">"(${_EVAL})"</span> 2&gt;&amp;1
-<span class="linenr">43: </span>
-<span class="linenr">44: </span><span style="color: #8b0000;"># </span><span style="color: #8b0000;">check modified file</span>
-<span class="linenr">45: </span><span style="color: #ee0000;">if</span> [ ! $(egrep -c <span style="color: #8b2252;">'^(&lt;&lt;&lt;&lt;&lt;&lt;&lt;|=======|&gt;&gt;&gt;&gt;&gt;&gt;&gt;|####### Ancestor)'</span> ${<span style="color: #a0522d;">_MERGED</span>}) = 0 ]; <span style="color: #ee0000;">then</span>
-<span class="linenr">46: </span>    <span style="color: #a0522d;">_MERGEDSAVE</span>=$(${<span style="color: #a0522d;">_MKTEMP</span>} --tmpdir <span style="color: #ff00ff;">`${_BASENAME} ${_MERGED}`</span>.XXXXXXXXXX)
-<span class="linenr">47: </span>    ${<span style="color: #a0522d;">_CP</span>} ${<span style="color: #a0522d;">_MERGED</span>} ${<span style="color: #a0522d;">_MERGEDSAVE</span>}
-<span class="linenr">48: </span>    <span style="color: #483d8b;">echo</span> 1&gt;&amp;2 <span style="color: #8b2252;">"Oops! Conflict markers detected in $_MERGED."</span>
-<span class="linenr">49: </span>    <span style="color: #483d8b;">echo</span> 1&gt;&amp;2 <span style="color: #8b2252;">"Saved your changes to ${_MERGEDSAVE}"</span>
-<span class="linenr">50: </span>    <span style="color: #483d8b;">echo</span> 1&gt;&amp;2 <span style="color: #8b2252;">"Exiting with code 1."</span>
-<span class="linenr">51: </span>    <span style="color: #ee0000;">exit</span> 1
-<span class="linenr">52: </span><span style="color: #ee0000;">fi</span>
-<span class="linenr">53: </span>
-<span class="linenr">54: </span><span style="color: #ee0000;">exit</span> 0
-</pre>
-</div>
+# args
+_LOCAL=${1}
+_REMOTE=${2}
+if [ "${3}" ] ; then
+    _MERGED=${3}
+else
+    _MERGED=${_REMOTE}
+fi
+if [ "${4}" ] && [ -r "${4}" ] ; then
+    _BASE=${4}
+    _EDIFF=ediff-merge-files-with-ancestor
+    _EVAL="${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\" \"${_BASE}\" nil \"${_MERGED}\""
+elif [ "${_REMOTE}" = "${_MERGED}" ] ; then
+    _EDIFF=ediff
+    _EVAL="${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\""
+else
+    _EDIFF=ediff-merge-files
+    _EVAL="${_EDIFF} \"${_LOCAL}\" \"${_REMOTE}\" nil \"${_MERGED}\""
+fi
 
-#### Script Modifications
+# console vs. X
+if [ "${TERM}" = "linux" ]; then
+    unset DISPLAY
+    _EMACSCLIENTOPTS="-t"
+else
+    _EMACSCLIENTOPTS="-c"
+fi
 
-To use the script successfully you may have to adapt it.
+# run emacsclient
+${_EMACSCLIENT} ${_EMACSCLIENTOPTS} -a "" -e "(${_EVAL})" 2>&1
 
-1. Check if the required tools are available and adapt their path if necessary (line 11-15).
-2. Adapt the poor man's check for console (vs. graphical display) to your needs (line 34-39).
+# check modified file
+if ${_GREP} -Eq '^(<<<<<<<|=======|>>>>>>>|####### Ancestor)' "${_MERGED}"; then
+    _MERGEDSAVE=$(${_MKTEMP} --tmpdir "$(${_BASENAME} "${_MERGED}")".XXXXXXXXXX)
+    ${_CP} "${_MERGED}" "${_MERGEDSAVE}"
+    echo 1>&2 "Oops! Conflict markers detected in ${_MERGED}."
+    echo 1>&2 "Saved your changes to ${_MERGEDSAVE}"
+    echo 1>&2 "Exiting with code 1."
+    exit 1
+else
+    _GREP_STATUS=$?
+    if [ "${_GREP_STATUS}" -gt 1 ]; then
+        echo 1>&2 "Error checking conflict markers in ${_MERGED}."
+        exit "${_GREP_STATUS}"
+    fi
+fi
 
+exit 0
+```
+
+### Script Modifications
+
+To use the script successfully, you may need to adapt it to your environment.
+
+1. **Tool paths:** Check whether the required tools are available and adjust their paths if necessary: `_EMACSCLIENT`, `_BASENAME`, `_CP`, `_MKTEMP`, and `_GREP`.
+
+2. **Console versus graphical display:** Adapt the display check to your needs. The script checks whether `TERM` is set to `linux` to select terminal mode; otherwise, it requests a new Emacs frame.
+
+3. **Conflict-marker detection:** The script uses `grep -E` to match the configured conflict-marker patterns. The `-q` option suppresses normal output and allows `grep` to stop searching as soon as a match is found.
+
+4. **Conflict markers found:** If the check finds a conflict marker, the script saves a copy of the edited file and exits with status `1`.
+
+5. **No conflict markers found:** If the check completes successfully without finding a marker, the script exits with status `0`.
+
+6. **Check fails:** If `grep` encounters an error, for example because the merged file cannot be read, it returns a status greater than `1`. The script propagates that status rather than treating the failed check as a successful merge.
 
 ### Git Configuration
 
-To add the Ediff as default diff and merge tool, you need the following in one of your Git configurations (preferably in `~/.gitconfig`):
+To add Ediff as the default diff and merge tool, add the following to one of your Git configuration files, preferably `~/.gitconfig`:
 
-```
+```gitconfig
 [diff]
-        tool = ediff
-        guitool = ediff
+    tool = ediff
+    guitool = ediff
 
 [difftool "ediff"]
-        cmd = /PATH/TO/ediff.sh $LOCAL $REMOTE $MERGED
+    cmd = /PATH/TO/ediff.sh $LOCAL $REMOTE $MERGED
 
 [merge]
-        tool = ediff
+    tool = ediff
 
 [mergetool "ediff"]
-        cmd = /PATH/TO/ediff.sh $LOCAL $REMOTE $MERGED $BASE
-        trustExitCode = true
+    cmd = /PATH/TO/ediff.sh $LOCAL $REMOTE $MERGED $BASE
+    trustExitCode = true
 ```
 
-Just replace the `/PATH/TO/` parts in the above snippet and leave the arguments ($LOCAL etc.) as they are. These three or four variables are provided by git difftool and git mergetool respectively.
+Replace `/PATH/TO/` with the actual path to the script. Leave the arguments (`$LOCAL`, `$REMOTE`, `$MERGED`, and `$BASE`) as they are. Git supplies these variables to the configured command, as appropriate.
+
+Setting `trustExitCode = true` tells Git to use the merge tool's exit status to determine whether the merge succeeded. This makes the script's exit status relevant to Git's handling of the merge result.
 
 ### Caveats
-1. To perform the check for conflict markers (line 45ff) the script needs to wait for *emacsclient* to finish. This means that you cannot use *emacsclient* with the option `–no-wait`.<br><br>If you desperately need that option and want to add it anyway (in line 38) then you should remove the check for conflict markers (line 44-52) as it would always be successful. Additionally, you must set *mergetool.ediff.trustExitCode* to `false`.
 
-2. If conflict markers are found after *emacsclient* has returned, the script exits with code 1. With *mergetool.ediff.trustExitCode* set to `true` Git will then restore the original (conflict) version of the file, thus throwing away everything you've done in Emacs. That's okay if you wanted to start over anyway. However, losing your edits may not be desired in some cases (e.g. you just forgot to remove a conflict marker). Therefore, the script saves your edited version away before exiting so that you can always retrieve what you've done (see line 46f).
+1. **The script must wait for Emacs to finish.**
+
+   To check for conflict markers reliably, the script needs to wait for `emacsclient` to return. It therefore does not use the `--no-wait` option.
+
+   If you decide to use `--no-wait`, you should remove the conflict-marker check and set `mergetool.ediff.trustExitCode` to `false`. Otherwise, the script could check the file before Emacs has finished editing it.
+
+2. **Unresolved conflict markers.**
+
+   If conflict markers are found after `emacsclient` returns, the script exits with status `1`. With `mergetool.ediff.trustExitCode` set to `true`, Git uses the tool's exit status to determine whether the merge was successful. A non-zero exit status indicates that the merge was not successful, and Git may leave the file marked as unresolved.
+
+   To prevent the edited version from being lost, the script saves a copy of the file before exiting. You can retrieve your edits from this backup if necessary.
+
+3. **Conflict-marker checks are not a complete merge validation.**
+
+   The script checks for lines beginning with the configured marker patterns. It does not determine whether the resulting merge is semantically correct. Matching text can also trigger the check even when it is not an actual unresolved conflict.
+
+   In addition, the script's successful exit status indicates that no configured conflict markers were found and the check did not report an error. It should not be interpreted as proof that every aspect of the merge succeeded.
 
 ## Footnotes
 
-<a name="myfootnote1">1</a>: http://www.gnu.org/software/emacs/manual/html_node/ediff/
+<a name="myfootnote1">1</a>: [GNU Emacs Ediff Manual](https://www.gnu.org/software/emacs/manual/html_node/ediff/)
 
+Adapted from: `http://ulf.zeitform.de/en/documents/git-ediff.html`
 
-Adapted from: `http://ulf.zeitform.de/en/documents/git-ediff.html'
-
-author: Ulf Stegemann (ulf@zeitform.de)
+Author: Ulf Stegemann (ulf@zeitform.de)
